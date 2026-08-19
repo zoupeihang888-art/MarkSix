@@ -2,19 +2,47 @@ import { type CsvDrawRecord } from "@/lib/types";
 
 type MacauApiRow = Record<string, unknown>;
 
-const DEFAULT_LOTTERY_KEY = "macaujc2";
+export const NEW_MACAU_LOTTERY_KEY = "macaujc2";
+export const NEW_MACAU_LATEST_URL = "https://macaumarksix.com/api/macaujc2.com";
+export const NEW_MACAU_HISTORY_TEMPLATE = "https://history.macaumarksix.com/history/macaujc2/y/{year}";
+const MACAU_DATE_PARTS = new Intl.DateTimeFormat("en", {
+  timeZone: "Asia/Macau",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 
 function lotteryKey(): string {
-  const configured = process.env.MACAU_LOTTERY_KEY?.trim();
-  return configured || DEFAULT_LOTTERY_KEY;
+  const configured = process.env.MACAU_LOTTERY_KEY?.trim().toLowerCase();
+  if (configured && configured !== NEW_MACAU_LOTTERY_KEY) {
+    throw new Error(`MACAU_LOTTERY_KEY must be ${NEW_MACAU_LOTTERY_KEY} for New Macau Mark Six`);
+  }
+  return NEW_MACAU_LOTTERY_KEY;
 }
 
 function defaultLatestUrl(): string {
-  return `https://macaumarksix.com/api/${lotteryKey()}.com`;
+  lotteryKey();
+  return NEW_MACAU_LATEST_URL;
 }
 
 function defaultHistoryTemplate(): string {
-  return `https://history.macaumarksix.com/history/${lotteryKey()}/y/{year}`;
+  lotteryKey();
+  return NEW_MACAU_HISTORY_TEMPLATE;
+}
+
+function validateNewMacauUrl(url: string, label: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`${label} is not a valid URL`);
+  }
+
+  if (parsed.protocol !== "https:" || !parsed.pathname.toLowerCase().includes(NEW_MACAU_LOTTERY_KEY)) {
+    throw new Error(`${label} must point to the New Macau (${NEW_MACAU_LOTTERY_KEY}) API`);
+  }
+
+  return url;
 }
 
 function currentMacauYear(): number {
@@ -74,6 +102,29 @@ function normalizeDate(input: unknown): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function macauDateParts(date: Date): { year: number; month: number; day: number } | null {
+  const parts = MACAU_DATE_PARTS.formatToParts(date);
+  const year = Number(parts.find((part) => part.type === "year")?.value);
+  const month = Number(parts.find((part) => part.type === "month")?.value);
+  const day = Number(parts.find((part) => part.type === "day")?.value);
+  if (![year, month, day].every(Number.isInteger)) {
+    return null;
+  }
+  return { year, month, day };
+}
+
+function issueMatchesDrawDate(issueNo: string, drawDate: Date): boolean {
+  const parts = macauDateParts(drawDate);
+  if (!parts) {
+    return false;
+  }
+
+  const startOfYear = Date.UTC(parts.year, 0, 1);
+  const currentDate = Date.UTC(parts.year, parts.month - 1, parts.day);
+  const dayOfYear = Math.floor((currentDate - startOfYear) / 86_400_000) + 1;
+  return issueNo === `${parts.year}${String(dayOfYear).padStart(3, "0")}`;
+}
+
 function parseNumberList(input: unknown): number[] {
   const text = `${input ?? ""}`.trim();
   if (!text) {
@@ -102,7 +153,7 @@ function rowsFromPayload(payload: unknown): MacauApiRow[] {
   return [];
 }
 
-function parseMacauRows(payload: unknown, source: string): CsvDrawRecord[] {
+export function parseMacauPayload(payload: unknown, source: string): CsvDrawRecord[] {
   const records: CsvDrawRecord[] = [];
 
   for (const row of rowsFromPayload(payload)) {
@@ -110,7 +161,13 @@ function parseMacauRows(payload: unknown, source: string): CsvDrawRecord[] {
     const drawDate = normalizeDate(row.openTime ?? row.drawDate ?? row.date);
     const values = parseNumberList(row.openCode ?? row.numbers ?? row.result);
 
-    if (!issueNo || !drawDate || values.length !== 7) {
+    if (
+      !issueNo ||
+      !drawDate ||
+      !issueMatchesDrawDate(issueNo, drawDate) ||
+      values.length !== 7 ||
+      new Set(values).size !== 7
+    ) {
       continue;
     }
 
@@ -164,7 +221,7 @@ function resolveHistoryYears(): number[] {
 
 function historyUrlForYear(year: number): string {
   const template = process.env.MACAU_HISTORY_API_TEMPLATE?.trim() || defaultHistoryTemplate();
-  return template.replace("{year}", String(year));
+  return validateNewMacauUrl(template.replace("{year}", String(year)), "MACAU_HISTORY_API_TEMPLATE");
 }
 
 function sortAndDedupe(records: CsvDrawRecord[]): CsvDrawRecord[] {
@@ -178,7 +235,11 @@ function sortAndDedupe(records: CsvDrawRecord[]): CsvDrawRecord[] {
 }
 
 export async function loadMacauRecords(): Promise<CsvDrawRecord[]> {
-  const latestUrl = process.env.MACAU_LATEST_API_URL?.trim() || defaultLatestUrl();
+  lotteryKey();
+  const latestUrl = validateNewMacauUrl(
+    process.env.MACAU_LATEST_API_URL?.trim() || defaultLatestUrl(),
+    "MACAU_LATEST_API_URL",
+  );
   const records: CsvDrawRecord[] = [];
   const errors: string[] = [];
 
@@ -186,7 +247,7 @@ export async function loadMacauRecords(): Promise<CsvDrawRecord[]> {
     const url = historyUrlForYear(year);
     try {
       const payload = await fetchJson(url);
-      records.push(...parseMacauRows(payload, "new_macau_history_api"));
+      records.push(...parseMacauPayload(payload, "new_macau_history_api"));
     } catch (error) {
       errors.push(error instanceof Error ? error.message : String(error));
     }
@@ -194,7 +255,7 @@ export async function loadMacauRecords(): Promise<CsvDrawRecord[]> {
 
   try {
     const payload = await fetchJson(latestUrl);
-    records.push(...parseMacauRows(payload, "new_macau_latest_api"));
+    records.push(...parseMacauPayload(payload, "new_macau_latest_api"));
   } catch (error) {
     errors.push(error instanceof Error ? error.message : String(error));
   }

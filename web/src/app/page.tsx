@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { describeSpecialNumber, formatNumber, getWaveColor, inferYearFromIssue, macauIssueWhere } from "@/lib/marksix";
+import { describeSpecialNumberForDate, formatNumber, getWaveColor, macauIssueWhere } from "@/lib/marksix";
 import { formatPredictionReason } from "@/lib/prediction-reason";
 import { strategyMeta } from "@/lib/strategies";
 import { waveSummaryFromDetailOrNumbers } from "@/lib/wave-summary";
@@ -118,8 +118,6 @@ export default async function HomePage() {
     })
     : [];
 
-  const latestIssueYear = latestDraw ? inferYearFromIssue(latestDraw.issueNo, latestDraw.drawDate.getUTCFullYear()) : null;
-
   return (
     <section className="stack">
       <div className="hero">
@@ -137,9 +135,7 @@ export default async function HomePage() {
             <p className="numbers-inline">
               正码 {parseJsonArray(latestDraw.numbersJson).map(formatNumber).join(" ")}
             </p>
-            {latestIssueYear ? (
-              <p className="special-chip">特别号 {describeSpecialNumber(latestDraw.specialNumber, latestIssueYear)}</p>
-            ) : null}
+            <p className="special-chip">特别号 {describeSpecialNumberForDate(latestDraw.specialNumber, latestDraw.drawDate)}</p>
           </div>
         ) : (
           <div className="hero-card">

@@ -7,6 +7,9 @@
   - 最新期开奖：`https://macaumarksix.com/api/macaujc2.com`
   - 按年历史：`https://history.macaumarksix.com/history/macaujc2/y/{year}`
 - 支持新澳门期号 `YYYYNNN`，例如 `2026146`
+- 按澳门开奖时间识别农历生肖年，春节初一当晚开奖起切换生肖轴
+- 严格把 `openCode` 前 6 个号码作为正码、第 7 个号码作为特别号
+- 固定校验 `macaujc2`，防止环境变量误切到旧澳门数据
 - Vercel Cron 自动同步最新期次，并写入 Postgres
 - 自动复盘特别号码是否命中候选池
 - 4 套特别号码预测方案：
