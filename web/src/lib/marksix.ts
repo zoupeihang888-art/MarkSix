@@ -10,6 +10,11 @@ const YEAR_ZODIAC_SEQUENCE: ZodiacName[] = ["猴", "鸡", "狗", "猪", "鼠", "
 const RED_WAVE = new Set([1, 2, 7, 8, 12, 13, 18, 19, 23, 24, 29, 30, 34, 35, 40, 45, 46]);
 const BLUE_WAVE = new Set([3, 4, 9, 10, 14, 15, 20, 25, 26, 31, 36, 37, 41, 42, 47, 48]);
 export const MACAU_ISSUE_PATTERN = /^\d{7}$/;
+const MACAU_TIME_ZONE = "Asia/Macau";
+const CHINESE_CALENDAR_YEAR = new Intl.DateTimeFormat("en-u-ca-chinese", {
+  year: "numeric",
+  timeZone: MACAU_TIME_ZONE,
+});
 
 function modulo(value: number, base: number): number {
   return ((value % base) + base) % base;
@@ -66,6 +71,48 @@ export function nextMacauIssueNo(issueNo: string): string {
   return `${year + 1}001`;
 }
 
+/**
+ * New Macau issue numbers use YYYYNNN, where NNN is the Gregorian day of year.
+ * The returned instant is 21:00 in Macau so a Lunar New Year day's evening draw
+ * always uses the new zodiac axis.
+ */
+export function getMacauDrawDateFromIssue(issueNo: string): Date | null {
+  if (!isMacauIssueNo(issueNo)) {
+    return null;
+  }
+
+  const year = Number(issueNo.slice(0, 4));
+  const sequence = Number(issueNo.slice(4));
+  const issueCount = new Date(Date.UTC(year, 1, 29)).getUTCMonth() === 1 ? 366 : 365;
+  if (!Number.isInteger(year) || !Number.isInteger(sequence) || sequence < 1 || sequence > issueCount) {
+    return null;
+  }
+
+  return new Date(Date.UTC(year, 0, sequence, 13));
+}
+
+/** Return the lunar zodiac year that applies to an actual Macau draw time. */
+export function getZodiacYearForDate(drawDate: Date): number {
+  if (Number.isNaN(drawDate.getTime())) {
+    throw new RangeError("Invalid draw date");
+  }
+
+  const yearPart = CHINESE_CALENDAR_YEAR
+    .formatToParts(drawDate)
+    .find((part) => ["relatedYear", "year"].includes(String(part.type)));
+  const zodiacYear = Number(yearPart?.value);
+  if (!Number.isInteger(zodiacYear)) {
+    throw new Error(`Unable to resolve Chinese calendar year for ${drawDate.toISOString()}`);
+  }
+
+  return zodiacYear;
+}
+
+export function inferZodiacYearFromIssue(issueNo: string, fallbackDate?: Date): number {
+  const issueDate = getMacauDrawDateFromIssue(issueNo);
+  return getZodiacYearForDate(issueDate ?? fallbackDate ?? new Date());
+}
+
 export function getYearZodiac(year: number): ZodiacName {
   return YEAR_ZODIAC_SEQUENCE[modulo(year - 2004, 12)];
 }
@@ -73,6 +120,10 @@ export function getYearZodiac(year: number): ZodiacName {
 export function getZodiacForNumber(number: number, year: number): ZodiacName {
   const startIndex = ZODIAC_SEQUENCE.indexOf(getYearZodiac(year));
   return ZODIAC_SEQUENCE[modulo(startIndex - (number - 1), 12)];
+}
+
+export function getZodiacForDrawDate(number: number, drawDate: Date): ZodiacName {
+  return getZodiacForNumber(number, getZodiacYearForDate(drawDate));
 }
 
 export function getNumbersForZodiac(zodiac: ZodiacName, year: number): number[] {
@@ -113,4 +164,8 @@ export function formatNumber(number: number): string {
 
 export function describeSpecialNumber(number: number, year: number): string {
   return `${formatNumber(number)} · ${getZodiacForNumber(number, year)} · ${getWaveColor(number)}`;
+}
+
+export function describeSpecialNumberForDate(number: number, drawDate: Date): string {
+  return describeSpecialNumber(number, getZodiacYearForDate(drawDate));
 }

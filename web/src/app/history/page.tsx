@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { ALL_NUMBERS, describeSpecialNumber, formatNumber, getWaveColor, inferYearFromIssue, macauIssueWhere } from "@/lib/marksix";
+import { ALL_NUMBERS, describeSpecialNumberForDate, formatNumber, getWaveColor, macauIssueWhere } from "@/lib/marksix";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -208,7 +208,6 @@ export default async function HistoryPage({
               <tbody>
                 {latestDraws.map((draw) => {
                   const numbers = parseJsonArray(draw.numbersJson);
-                  const year = inferYearFromIssue(draw.issueNo, draw.drawDate.getUTCFullYear());
 
                   return (
                     <tr key={draw.id}>
@@ -225,7 +224,7 @@ export default async function HistoryPage({
                       </td>
                       <td className="history-special-cell">
                         <span className={`history-ball history-special ${waveClassName(draw.specialNumber)}`}>
-                          {describeSpecialNumber(draw.specialNumber, year)}
+                          {describeSpecialNumberForDate(draw.specialNumber, draw.drawDate)}
                         </span>
                       </td>
                     </tr>

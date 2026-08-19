@@ -1,5 +1,5 @@
 import { PredictionStatus, type PrismaClient } from "@prisma/client";
-import { getWaveColor, getZodiacForNumber, inferYearFromIssue, macauIssueWhere, nextMacauIssueNo } from "@/lib/marksix";
+import { getWaveColor, getZodiacForDrawDate, macauIssueWhere, nextMacauIssueNo } from "@/lib/marksix";
 import { reviewPredictionRun } from "@/lib/prediction-review";
 import { prisma } from "@/lib/prisma";
 import { allStrategies, generateStrategyResult, predictWaveColor } from "@/lib/strategies";
@@ -157,10 +157,7 @@ export async function reviewIssue(issueNo: string) {
 
   const winningSpecial = draw.specialNumber;
   const actualWave = getWaveColor(winningSpecial);
-  const actualZodiac = getZodiacForNumber(
-    winningSpecial,
-    inferYearFromIssue(draw.issueNo, draw.drawDate.getUTCFullYear()),
-  );
+  const actualZodiac = getZodiacForDrawDate(winningSpecial, draw.drawDate);
   const pendingRuns = await prisma.predictionRun.findMany({
     where: { issueNo, status: PredictionStatus.PENDING },
     include: { picks: true, waveDetail: true, zodiacDetail: true },

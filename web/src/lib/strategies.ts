@@ -6,9 +6,10 @@ import {
   getNumbersForZodiac,
   getWaveColor,
   getYearZodiac,
+  getZodiacForDrawDate,
   getZodiacForNumber,
   getZoneIndex,
-  inferYearFromIssue,
+  inferZodiacYearFromIssue,
 } from "@/lib/marksix";
 import { type StrategyId, type StrategyResult, type ZodiacSelection } from "@/lib/types";
 import { predictWaveColorWithPythonParity } from "@/lib/wave-python-parity";
@@ -21,7 +22,8 @@ export type GenerateStrategyOptions = {
   killTenAlgorithm?: KillTenAlgorithm;
 };
 
-export const KILL_TEN_SCORED_VERSION = "kill_ten_special_legacy_pool_full49_score_v2";
+export const LUNAR_ZODIAC_VERSION = "lunar_new_year_axis_v2";
+export const KILL_TEN_SCORED_VERSION = "kill_ten_special_legacy_pool_full49_score_lunar_zodiac_v3";
 const KILL_TEN_SCORED_FROM_ISSUE = "2026209";
 type WavePrediction = {
   predictedWaves: WaveColor[];
@@ -50,6 +52,15 @@ const PURE_ZODIAC_STRATEGIES = new Set([
   "zodiac_kill_two_v1",
   "zodiac_kill_one_v1",
 ]);
+const LUNAR_ZODIAC_STRATEGIES = new Set<StrategyId>([
+  "zodiac_special_v1",
+  "zodiac_nine_v1",
+  "zodiac_six_v1",
+  "zodiac_kill_two_v1",
+  "zodiac_kill_one_v1",
+  "cold_special_v1",
+  "knowledge_mix_v1",
+]);
 
 type ZodiacScore = {
   zodiac: (typeof ZODIAC_SEQUENCE)[number];
@@ -60,6 +71,12 @@ export function isPureZodiacStrategy(
   strategy: string,
 ): strategy is "zodiac_nine_v1" | "zodiac_six_v1" | "zodiac_kill_two_v1" | "zodiac_kill_one_v1" {
   return PURE_ZODIAC_STRATEGIES.has(strategy);
+}
+
+function strategyVersion(strategy: StrategyId): string {
+  return LUNAR_ZODIAC_STRATEGIES.has(strategy)
+    ? `${strategy}_${LUNAR_ZODIAC_VERSION}`
+    : strategy;
 }
 
 function createNumberMap(defaultValue = 0): NumberMap {
@@ -414,23 +431,23 @@ export function buildMarkovTransitionScores(
   return options.targetSpecialOnly ? profile.specialTransitionScores : profile.transitionScores;
 }
 
-function zodiacFrequencyMap(draws: Draw[], year: number): StringMap {
+function zodiacFrequencyMap(draws: Draw[]): StringMap {
   const scores = new Map<string, number>(ZODIAC_SEQUENCE.map((zodiac) => [zodiac, 0]));
 
   for (let index = 0; index < draws.length; index += 1) {
     const weight = 1 / (index + 1);
-    const zodiac = getZodiacForNumber(draws[index].specialNumber, year);
+    const zodiac = getZodiacForDrawDate(draws[index].specialNumber, draws[index].drawDate);
     scores.set(zodiac, (scores.get(zodiac) ?? 0) + weight);
   }
 
   return normalizeStringMap(scores);
 }
 
-function zodiacOmissionMap(draws: Draw[], year: number): StringMap {
+function zodiacOmissionMap(draws: Draw[]): StringMap {
   const scores = new Map<string, number>(ZODIAC_SEQUENCE.map((zodiac) => [zodiac, draws.length + 1]));
 
   for (let index = 0; index < draws.length; index += 1) {
-    const zodiac = getZodiacForNumber(draws[index].specialNumber, year);
+    const zodiac = getZodiacForDrawDate(draws[index].specialNumber, draws[index].drawDate);
     if ((scores.get(zodiac) ?? draws.length + 1) > index + 1) {
       scores.set(zodiac, index + 1);
     }
@@ -439,23 +456,23 @@ function zodiacOmissionMap(draws: Draw[], year: number): StringMap {
   return normalizeStringMap(scores);
 }
 
-function zodiacTransitionMap(draws: Draw[], year: number): StringMap {
+function zodiacTransitionMap(draws: Draw[]): StringMap {
   const scores = new Map<string, number>(ZODIAC_SEQUENCE.map((zodiac) => [zodiac, 0]));
-  const currentSpecial = draws[0]?.specialNumber;
+  const currentDraw = draws[0];
 
-  if (!currentSpecial) {
+  if (!currentDraw) {
     return scores;
   }
 
-  const currentZodiac = getZodiacForNumber(currentSpecial, year);
+  const currentZodiac = getZodiacForDrawDate(currentDraw.specialNumber, currentDraw.drawDate);
 
   for (let index = 0; index < draws.length - 1; index += 1) {
-    const prevZodiac = getZodiacForNumber(draws[index + 1].specialNumber, year);
+    const prevZodiac = getZodiacForDrawDate(draws[index + 1].specialNumber, draws[index + 1].drawDate);
     if (prevZodiac !== currentZodiac) {
       continue;
     }
 
-    const followerZodiac = getZodiacForNumber(draws[index].specialNumber, year);
+    const followerZodiac = getZodiacForDrawDate(draws[index].specialNumber, draws[index].drawDate);
     scores.set(followerZodiac, (scores.get(followerZodiac) ?? 0) + 1);
   }
 
@@ -474,14 +491,13 @@ function rankZodiacScoreMaps(zodiacHot: StringMap, zodiacCold: StringMap, zodiac
     .sort((a, b) => b.score - a.score || ZODIAC_SEQUENCE.indexOf(a.zodiac) - ZODIAC_SEQUENCE.indexOf(b.zodiac));
 }
 
-export function rankZodiacScores(recentDraws: Draw[], issueNo: string): ZodiacScore[] {
-  const targetYear = inferYearFromIssue(issueNo, recentDraws[0]?.drawDate.getUTCFullYear());
+export function rankZodiacScores(recentDraws: Draw[], _issueNo: string): ZodiacScore[] {
   const longWindow = recentDraws.slice(0, Math.min(recentDraws.length, 180));
   const mediumWindow = recentDraws.slice(0, Math.min(recentDraws.length, 72));
   return rankZodiacScoreMaps(
-    zodiacFrequencyMap(longWindow, targetYear),
-    zodiacOmissionMap(longWindow, targetYear),
-    zodiacTransitionMap(mediumWindow, targetYear),
+    zodiacFrequencyMap(longWindow),
+    zodiacOmissionMap(longWindow),
+    zodiacTransitionMap(mediumWindow),
   );
 }
 
@@ -760,7 +776,7 @@ export function generateStrategyResult(
   issueNo: string,
   options: GenerateStrategyOptions = {},
 ): StrategyResult {
-  const targetYear = inferYearFromIssue(issueNo, recentDraws[0]?.drawDate.getUTCFullYear());
+  const targetYear = inferZodiacYearFromIssue(issueNo, recentDraws[0]?.drawDate);
   const longWindow = recentDraws.slice(0, Math.min(recentDraws.length, 180));
   const mediumWindow = recentDraws.slice(0, Math.min(recentDraws.length, 72));
   const shortWindow = recentDraws.slice(0, Math.min(recentDraws.length, 24));
@@ -773,9 +789,9 @@ export function generateStrategyResult(
   const transition = transitionMap(mediumWindow);
   const colorGap = colorGapMap(shortWindow);
   const zoneGap = zoneGapMap(shortWindow);
-  const zodiacHot = zodiacFrequencyMap(longWindow, targetYear);
-  const zodiacCold = zodiacOmissionMap(longWindow, targetYear);
-  const zodiacTransition = zodiacTransitionMap(mediumWindow, targetYear);
+  const zodiacHot = zodiacFrequencyMap(longWindow);
+  const zodiacCold = zodiacOmissionMap(longWindow);
+  const zodiacTransition = zodiacTransitionMap(mediumWindow);
   const rankedZodiacs = rankZodiacScoreMaps(zodiacHot, zodiacCold, zodiacTransition);
 
   const hotScores = createNumberMap();
@@ -860,7 +876,7 @@ export function generateStrategyResult(
 
     return {
       strategy,
-      strategyVersion: strategy,
+      strategyVersion: strategyVersion(strategy),
       selectionMode: "EXCLUDE",
       picks: legacyPicks,
     };
@@ -869,7 +885,7 @@ export function generateStrategyResult(
   if (strategy === "wave_special_v1") {
     return {
       strategy,
-      strategyVersion: strategy,
+      strategyVersion: strategyVersion(strategy),
       picks: [],
     };
   }
@@ -878,7 +894,7 @@ export function generateStrategyResult(
   if (zodiacSelection) {
     return {
       strategy,
-      strategyVersion: strategy,
+      strategyVersion: strategyVersion(strategy),
       zodiacSelection,
       picks: [],
     };
@@ -905,7 +921,7 @@ export function generateStrategyResult(
 
     return {
       strategy,
-      strategyVersion: strategy,
+      strategyVersion: strategyVersion(strategy),
       picks: pickTopCandidates(limited, strategyMeta[strategy].limit, (number, score) => {
         const zodiac = getZodiacForNumber(number, targetYear);
         return buildReason([
@@ -921,7 +937,7 @@ export function generateStrategyResult(
   if (strategy === "hot_special_v1") {
     return {
       strategy,
-      strategyVersion: strategy,
+      strategyVersion: strategyVersion(strategy),
       picks: pickTopCandidates(adjustedHot, strategyMeta[strategy].limit, (number, score) =>
         buildReason([
           ["短期热度", hotShort.get(number) ?? 0],
@@ -937,7 +953,7 @@ export function generateStrategyResult(
   if (strategy === "cold_special_v1") {
     return {
       strategy,
-      strategyVersion: strategy,
+      strategyVersion: strategyVersion(strategy),
       picks: pickTopCandidates(adjustedCold, strategyMeta[strategy].limit, (number, score) =>
         buildReason([
           ["遗漏修复", cold.get(number) ?? 0],
@@ -971,7 +987,7 @@ export function generateStrategyResult(
 
     return {
       strategy,
-      strategyVersion: strategy,
+      strategyVersion: strategyVersion(strategy),
       picks: pickTopCandidates(markovScores, strategyMeta[strategy].limit, (number, score) =>
         buildReason([
           ["开奖转移", profile.transitionScores.get(number) ?? 0],
@@ -986,7 +1002,7 @@ export function generateStrategyResult(
 
   return {
     strategy,
-    strategyVersion: strategy,
+    strategyVersion: strategyVersion(strategy),
     picks: pickTopCandidates(adjustedMix, strategyMeta[strategy].limit, (number, score) =>
       buildReason([
         ["热度", hotLong.get(number) ?? 0],

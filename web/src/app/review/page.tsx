@@ -1,5 +1,5 @@
 ﻿import { prisma } from "@/lib/prisma";
-import { describeSpecialNumber, getWaveColor, getZodiacForNumber, inferYearFromIssue, macauIssueWhere } from "@/lib/marksix";
+import { describeSpecialNumberForDate, getWaveColor, getZodiacForDrawDate, macauIssueWhere } from "@/lib/marksix";
 import {
   formatExclusionReviewResult,
   formatZodiacExclusionReviewResult,
@@ -282,14 +282,13 @@ export default async function ReviewPage({
                 <tbody>
                   {reviews.map((review) => {
                     const matched = parseJsonArray(review.matchedNumbersJson);
-                    const year = inferYearFromIssue(review.draw.issueNo, review.draw.drawDate.getUTCFullYear());
                     const isWaveStrategy = review.run.strategy === "wave_special_v1";
                     const isZodiacStrategy = Boolean(review.run.zodiacDetail);
                     const isNumberExclusion = review.run.selectionMode === "EXCLUDE";
                     const isZodiacExclusion = review.run.zodiacDetail?.mode === "EXCLUDE";
                     const displayPicks = isNumberExclusion ? orderPicksByScoreDesc(review.run.picks) : review.run.picks;
                     const actualWave = getWaveColor(review.draw.specialNumber);
-                    const actualZodiac = getZodiacForNumber(review.draw.specialNumber, year);
+                    const actualZodiac = getZodiacForDrawDate(review.draw.specialNumber, review.draw.drawDate);
                     const status = isNumberExclusion
                       ? review.hitCount > 0
                         ? "杀码成功"
@@ -305,7 +304,7 @@ export default async function ReviewPage({
                     return (
                       <tr key={review.id}>
                         <td>{review.draw.issueNo}</td>
-                        <td>{isWaveStrategy ? <WaveBadge wave={actualWave} size="sm" /> : describeSpecialNumber(review.draw.specialNumber, year)}</td>
+                        <td>{isWaveStrategy ? <WaveBadge wave={actualWave} size="sm" /> : describeSpecialNumberForDate(review.draw.specialNumber, review.draw.drawDate)}</td>
                         <td>
                           {strategyMeta[review.run.strategy as keyof typeof strategyMeta]?.name ?? review.run.strategy}
                           {isWaveStrategy ? <WaveReviewSummary detail={review.run.waveDetail} numbers={review.run.picks.map((pick) => pick.number)} actualWave={actualWave} /> : null}

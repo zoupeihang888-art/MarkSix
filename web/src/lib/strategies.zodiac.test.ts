@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { allStrategies, generateStrategyResult, rankZodiacScores, scheduledStrategies } from "@/lib/strategies";
+import {
+  LUNAR_ZODIAC_VERSION,
+  allStrategies,
+  generateStrategyResult,
+  rankZodiacScores,
+  scheduledStrategies,
+} from "@/lib/strategies";
 import { type StrategyId } from "@/lib/types";
 
 function makeDraw(specialNumber: number, day: number) {
@@ -51,5 +57,22 @@ test("all default and scheduled strategy sets include every pure zodiac strategy
   for (const strategy of zodiacStrategies) {
     assert.ok(allStrategies().includes(strategy));
     assert.ok(scheduledStrategies().includes(strategy));
+  }
+});
+
+test("zodiac-dependent strategies persist the lunar-calendar algorithm version", () => {
+  const zodiacStrategies: StrategyId[] = [
+    "zodiac_special_v1",
+    "zodiac_nine_v1",
+    "zodiac_six_v1",
+    "zodiac_kill_two_v1",
+    "zodiac_kill_one_v1",
+    "cold_special_v1",
+    "knowledge_mix_v1",
+  ];
+
+  for (const strategy of zodiacStrategies) {
+    const result = generateStrategyResult(strategy, zodiacDraws, "2026037");
+    assert.equal(result.strategyVersion, `${strategy}_${LUNAR_ZODIAC_VERSION}`);
   }
 });
